@@ -16,7 +16,7 @@ type MessageState = {
 }
 
 export function StaffLayoutPage() {
-  const { currentUser, isAuthenticated, login, logout } = useStaffAuth()
+  const { currentUser, isAuthenticated, isUsersLoading, loadError, login, logout } = useStaffAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [message, setMessage] = useState<MessageState | null>(null)
@@ -25,11 +25,12 @@ export function StaffLayoutPage() {
     username: 'admin',
     password: '123456',
   }
+  const loginMessage = message ?? (loadError ? { type: 'error', text: loadError } : null)
 
-  const handleLoginSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleLoginSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    const result = login(username, password)
+    const result = await login(username, password)
 
     setMessage({
       type: result.ok ? 'success' : 'error',
@@ -39,6 +40,20 @@ export function StaffLayoutPage() {
     if (result.ok) {
       setPassword('')
     }
+  }
+
+  if (isUsersLoading) {
+    return (
+      <StaffNotificationsProvider>
+        <div className="page-stack">
+          <PageHeader
+            title="Painel administrativo"
+            description="Carregando usuarios administrativos na nuvem..."
+          />
+        </div>
+        <StaffNotificationsViewport />
+      </StaffNotificationsProvider>
+    )
   }
 
   if (!isAuthenticated) {
@@ -53,7 +68,7 @@ export function StaffLayoutPage() {
             defaultUser={defaultUser}
             username={username}
             password={password}
-            message={message}
+            message={loginMessage}
             onUsernameChange={setUsername}
             onPasswordChange={setPassword}
             onSubmit={handleLoginSubmit}

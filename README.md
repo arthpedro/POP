@@ -1,4 +1,4 @@
-# Portal POPS (Frontend)
+﻿# Portal POPS (Frontend)
 
 Base frontend para escritorio de contabilidade, com arquitetura organizada, upload de documentos e painel Staff para gestao de setores.
 
@@ -8,34 +8,29 @@ Base frontend para escritorio de contabilidade, com arquitetura organizada, uplo
 - Vite
 - React Router
 - React Dropzone
-- ESLint
+- Vercel Serverless Functions (`/api/cloud/*`)
+- Upstash Redis (dados centralizados na nuvem)
 
 ## Estrutura principal
 
 ```txt
 src/
   app/
-    App.tsx
-    router.tsx
-    layouts/
-      AppLayout.tsx
-    providers/
-      AppProviders.tsx
   data/
-    default-sectors.json
-    staff-users.json
   features/
     document-upload/
     sectors/
     staff/
   pages/
-    dashboard/
-    documents/
-    clients/
-    settings/
-    setor-custom/
-    staff/
-    not-found/
+  shared/
+    api/
+api/
+  _lib/
+    cloud-store.js
+  cloud/
+    sectors.js
+    staff-users.js
+    documents.js
 ```
 
 ## Rotas
@@ -47,14 +42,33 @@ src/
 - `/setores/:sectorId` -> setores customizados criados no Staff
 - `/staff` -> autenticacao e gestao de setores
 
-## Staff e JSON
+## Persistencia em nuvem
 
-- Usuarios de login estao em `src/data/staff-users.json`.
-- Setores iniciais estao em `src/data/default-sectors.json`.
-- Sessao e lista de setores sao persistidas em `localStorage` em formato JSON.
-- Nao existe banco de dados nesta etapa.
+Os dados agora sao salvos na nuvem e compartilhados entre todos os acessos (sem `localStorage`):
 
-Usuario padrao atual:
+- setores
+- usuarios administrativos
+- documentos por setor
+
+Endpoints usados pelo frontend:
+
+- `GET/PUT /api/cloud/sectors`
+- `GET/PUT /api/cloud/staff-users`
+- `GET/PUT /api/cloud/documents`
+
+## Setup na Vercel
+
+1. No projeto da Vercel, adicione a integracao **Upstash Redis** (Marketplace).
+2. Confirme que as variaveis foram criadas no projeto:
+   - `UPSTASH_REDIS_REST_URL`
+   - `UPSTASH_REDIS_REST_TOKEN`
+3. Faça novo deploy.
+
+Sem essas variaveis, a API retorna erro de configuracao da nuvem.
+
+## Staff e usuarios iniciais
+
+Usuario inicial padrao (seed):
 
 - usuario: `admin`
 - senha: `123456`
@@ -77,3 +91,5 @@ npm run dev
 npm run lint
 npm run build
 ```
+
+Para testar API serverless localmente com as rotas `/api/*`, prefira `vercel dev`.

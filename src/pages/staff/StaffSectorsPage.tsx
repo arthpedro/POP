@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+﻿import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { DocumentDropzone } from '@/features/document-upload/components/DocumentDropzone'
 import { UploadedDocumentsList } from '@/features/document-upload/components/UploadedDocumentsList'
 import { useStaffNotifications } from '@/features/staff/context/StaffNotificationsContext'
@@ -11,8 +11,6 @@ import type { UploadedDocument } from '@/features/document-upload/types'
 import { makeDocumentSignature, validateDocument } from '@/features/document-upload/utils'
 import { useSectors } from '@/features/sectors/context/SectorsContext'
 import type { Sector } from '@/features/sectors/types/sector'
-
-const STAFF_SECTORS_DRAFT_STORAGE_KEY = 'pops.staff.sectors.draft'
 
 function slugify(value: string) {
   return value
@@ -86,55 +84,16 @@ function removeExtension(fileName: string) {
   return fileName.slice(0, lastDot)
 }
 
-function isValidSector(candidate: unknown): candidate is Sector {
-  if (!candidate || typeof candidate !== 'object') {
-    return false
-  }
-
-  const record = candidate as Record<string, unknown>
-
-  return (
-    typeof record.id === 'string' &&
-    typeof record.name === 'string' &&
-    typeof record.path === 'string' &&
-    typeof record.view === 'string' &&
-    typeof record.isCore === 'boolean'
-  )
-}
-
-function readDraftSectors() {
-  const rawValue = localStorage.getItem(STAFF_SECTORS_DRAFT_STORAGE_KEY)
-
-  if (!rawValue) {
-    return null
-  }
-
-  try {
-    const parsed = JSON.parse(rawValue)
-
-    if (!Array.isArray(parsed)) {
-      return null
-    }
-
-    const validSectors = parsed.filter(isValidSector)
-
-    return validSectors.length > 0 ? validSectors : null
-  } catch {
-    localStorage.removeItem(STAFF_SECTORS_DRAFT_STORAGE_KEY)
-    return null
-  }
-}
-
 export function StaffSectorsPage() {
-  const { sectors, replaceSectors } = useSectors()
+  const { sectors, isLoading: isSectorsLoading, replaceSectors } = useSectors()
   const { notify } = useStaffNotifications()
   const [newSectorName, setNewSectorName] = useState('')
   const [isAddSectorModalOpen, setIsAddSectorModalOpen] = useState(false)
   const [addSectorError, setAddSectorError] = useState<string | null>(null)
-  const [workingSectors, setWorkingSectors] = useState<Sector[]>(() => readDraftSectors() ?? sectors)
-  const [documentsBySector, setDocumentsBySector] = useState<SectorDocumentsStore>(() =>
-    readSectorDocumentsStore(),
-  )
+  const [workingSectors, setWorkingSectors] = useState<Sector[]>([])
+  const [isSavingSectors, setIsSavingSectors] = useState(false)
+  const [documentsBySector, setDocumentsBySector] = useState<SectorDocumentsStore>({})
+  const [isDocumentsLoading, setIsDocumentsLoading] = useState(true)
   const [activeSectorId, setActiveSectorId] = useState<string | null>(null)
   const [isFilesModalOpen, setIsFilesModalOpen] = useState(false)
   const [fileMessages, setFileMessages] = useState<string[]>([])
@@ -144,10 +103,13 @@ export function StaffSectorsPage() {
   const [fileDisplayNameInput, setFileDisplayNameInput] = useState('')
   const [fileNameInputError, setFileNameInputError] = useState<string | null>(null)
 
-  const hasPendingChanges = useMemo(
-    () => JSON.stringify(workingSectors) !== JSON.stringify(sectors),
-    [workingSectors, sectors],
-  )
+  const hasPendingChanges = useMemo(() => {
+    if (workingSectors.length === 0) {
+      return false
+    }
+
+    return JSON.stringify(workingSectors) !== JSON.stringify(sectors)
+  }, [workingSectors, sectors])
 
   const activeSector = useMemo(
     () => workingSectors.find((item) => item.id === activeSectorId) ?? null,
@@ -159,13 +121,47 @@ export function StaffSectorsPage() {
     : []
 
   useEffect(() => {
-    if (!hasPendingChanges) {
-      localStorage.removeItem(STAFF_SECTORS_DRAFT_STORAGE_KEY)
-      return
+    setWorkingSectors((currentSectors) => {
+      if (currentSectors.length === 0) {
+        return sectors
+      }
+
+      const isDirty = JSON.stringify(currentSectors) !== JSON.stringify(sectors)
+      return isDirty ? currentSectors : sectors
+    })
+  }, [sectors])
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadCloudDocuments = async () => {
+      try {
+        const cloudStore = await readSectorDocumentsStore()
+
+        if (!isMounted) {
+          return
+        }
+
+        setDocumentsBySector(cloudStore)
+      } catch {
+        if (!isMounted) {
+          return
+        }
+
+        setDocumentsBySector({})
+      } finally {
+        if (isMounted) {
+          setIsDocumentsLoading(false)
+        }
+      }
     }
 
-    localStorage.setItem(STAFF_SECTORS_DRAFT_STORAGE_KEY, JSON.stringify(workingSectors))
-  }, [hasPendingChanges, workingSectors])
+    loadCloudDocuments()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   const openAddSectorModal = () => {
     setIsAddSectorModalOpen(true)
@@ -202,7 +198,7 @@ export function StaffSectorsPage() {
     closeAddSectorModal()
     notify({
       type: 'success',
-      message: 'Setor adicionado ao rascunho. Clique em Salvar alterações para confirmar.',
+      message: 'Setor adicionado ao rascunho. Clique em Salvar alteracoes para confirmar.',
     })
   }
 
@@ -228,29 +224,26 @@ export function StaffSectorsPage() {
     setWorkingSectors(nextSectors)
     notify({
       type: 'success',
-      message: 'Setor removido do rascunho. Clique em Salvar alterações para confirmar.',
+      message: 'Setor removido do rascunho. Clique em Salvar alteracoes para confirmar.',
     })
   }
 
-  const handleSaveChanges = () => {
-    const result = replaceSectors(workingSectors)
+  const handleSaveChanges = async () => {
+    setIsSavingSectors(true)
+    const result = await replaceSectors(workingSectors)
+    setIsSavingSectors(false)
 
     notify({
       type: result.ok ? 'success' : 'error',
-      message: result.message ?? 'Não foi possível salvar as alterações.',
+      message: result.message ?? 'Nao foi possivel salvar as alteracoes.',
     })
-
-    if (result.ok) {
-      localStorage.removeItem(STAFF_SECTORS_DRAFT_STORAGE_KEY)
-    }
   }
 
   const handleDiscardChanges = () => {
     setWorkingSectors(sectors)
-    localStorage.removeItem(STAFF_SECTORS_DRAFT_STORAGE_KEY)
     notify({
       type: 'success',
-      message: 'Alterações locais descartadas.',
+      message: 'Alteracoes locais descartadas.',
     })
   }
 
@@ -321,7 +314,7 @@ export function StaffSectorsPage() {
       const uniqueSignature = makeDocumentSignature(file)
 
       if (signatures.has(uniqueSignature)) {
-        nextMessages.push(`${file.name}: este arquivo já foi carregado neste setor.`)
+        nextMessages.push(`${file.name}: este arquivo ja foi carregado neste setor.`)
         continue
       }
 
@@ -332,7 +325,7 @@ export function StaffSectorsPage() {
       try {
         previewDataUrl = await fileToDataUrl(file)
       } catch {
-        nextMessages.push(`${file.name}: não foi possível gerar pré-visualização.`)
+        nextMessages.push(`${file.name}: nao foi possivel gerar pre-visualizacao.`)
       }
 
       nextDocuments.push({
@@ -367,11 +360,11 @@ export function StaffSectorsPage() {
     }
 
     try {
-      setDocumentsBySector(nextStore)
-      saveSectorDocumentsStore(nextStore)
+      const savedStore = await saveSectorDocumentsStore(nextStore)
+      setDocumentsBySector(savedStore)
     } catch {
       appendFileMessages([
-        'Não foi possível salvar os arquivos neste navegador. Tente arquivos menores.',
+        'Nao foi possivel salvar os arquivos na nuvem. Tente novamente.',
       ])
       return 0
     }
@@ -413,7 +406,7 @@ export function StaffSectorsPage() {
     closeFileNameModal()
   }
 
-  const handleRemoveFileFromSector = (documentId: string) => {
+  const handleRemoveFileFromSector = async (documentId: string) => {
     if (!activeSectorId) {
       return
     }
@@ -426,12 +419,19 @@ export function StaffSectorsPage() {
       [activeSectorId]: nextDocuments,
     }
 
-    setDocumentsBySector(nextStore)
-    saveSectorDocumentsStore(nextStore)
-    notify({
-      type: 'success',
-      message: 'Arquivo removido do setor.',
-    })
+    try {
+      const savedStore = await saveSectorDocumentsStore(nextStore)
+      setDocumentsBySector(savedStore)
+      notify({
+        type: 'success',
+        message: 'Arquivo removido do setor.',
+      })
+    } catch {
+      notify({
+        type: 'error',
+        message: 'Nao foi possivel remover o arquivo na nuvem.',
+      })
+    }
   }
 
   return (
@@ -444,7 +444,11 @@ export function StaffSectorsPage() {
         <article className="surface-card staff-overview-card">
           <p className="staff-overview-label">Status</p>
           <p className="staff-overview-value staff-overview-value-text">
-            {hasPendingChanges ? 'Alterações pendentes' : 'Tudo sincronizado'}
+            {isSectorsLoading || isDocumentsLoading
+              ? 'Sincronizando nuvem...'
+              : hasPendingChanges
+                ? 'Alteracoes pendentes'
+                : 'Tudo sincronizado'}
           </p>
         </article>
       </section>
@@ -452,7 +456,7 @@ export function StaffSectorsPage() {
       <section className="table-card staff-management-card">
         <div className="staff-management-head">
           <div>
-            <h3>Gestão de setores</h3>
+            <h3>Gestao de setores</h3>
           </div>
           <div className="staff-toolbar-main">
             <button type="button" className="primary-button" onClick={openAddSectorModal}>
@@ -462,7 +466,7 @@ export function StaffSectorsPage() {
               type="button"
               className="ghost-button"
               onClick={handleDiscardChanges}
-              disabled={!hasPendingChanges}
+              disabled={!hasPendingChanges || isSavingSectors}
             >
               Descartar
             </button>
@@ -470,9 +474,9 @@ export function StaffSectorsPage() {
               type="button"
               className="primary-button"
               onClick={handleSaveChanges}
-              disabled={!hasPendingChanges}
+              disabled={!hasPendingChanges || isSavingSectors}
             >
-              Salvar alterações
+              {isSavingSectors ? 'Salvando...' : 'Salvar alteracoes'}
             </button>
           </div>
         </div>
@@ -523,8 +527,8 @@ export function StaffSectorsPage() {
             </div>
 
             <p className="modal-description">
-              Informe o nome do setor. A mudança vai para rascunho e só será aplicada ao clicar em
-              Salvar alterações.
+              Informe o nome do setor. A mudanca vai para rascunho e so sera aplicada ao clicar em
+              Salvar alteracoes.
             </p>
 
             <form className="staff-form" onSubmit={handleAddSectorSubmit}>
@@ -577,7 +581,7 @@ export function StaffSectorsPage() {
             {fileMessages.length > 0 ? (
               <article className="alert-card" role="alert">
                 <div className="alert-headline">
-                  <h3>Validação</h3>
+                  <h3>Validacao</h3>
                   <button
                     type="button"
                     className="link-button"
@@ -626,7 +630,7 @@ export function StaffSectorsPage() {
                       setFileNameInputError(null)
                     }
                   }}
-                  placeholder="Ex.: Balancete Março 2026"
+                  placeholder="Ex.: Balancete Marco 2026"
                   autoFocus
                 />
               </label>

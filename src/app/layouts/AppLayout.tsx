@@ -17,6 +17,7 @@ export function AppLayout() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState<string | null>(null)
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
   const isOnHomePage = location.pathname === '/'
 
   const openStaffModal = () => {
@@ -35,16 +36,19 @@ export function AppLayout() {
     setLoginError(null)
   }
 
-  const handleStaffLoginSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleStaffLoginSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    setIsLoggingIn(true)
 
-    const result = login(username, password)
+    const result = await login(username, password)
 
     if (!result.ok) {
       setLoginError(result.message ?? 'Falha ao autenticar.')
+      setIsLoggingIn(false)
       return
     }
 
+    setIsLoggingIn(false)
     closeStaffModal()
     navigate('/staff')
   }
@@ -154,8 +158,8 @@ export function AppLayout() {
                 <button type="button" className="ghost-button" onClick={closeStaffModal}>
                   Cancelar
                 </button>
-                <button type="submit" className="primary-button">
-                  Entrar
+                <button type="submit" className="primary-button" disabled={isLoggingIn}>
+                  {isLoggingIn ? 'Entrando...' : 'Entrar'}
                 </button>
               </div>
             </form>

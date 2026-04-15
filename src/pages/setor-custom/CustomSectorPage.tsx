@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import * as mammoth from 'mammoth'
 import { Link, useParams } from 'react-router-dom'
-import { readSectorDocumentsStore } from '@/features/document-upload/storage/sectorDocumentsStorage'
+import {
+  readSectorDocumentsStore,
+  type SectorDocumentsStore,
+} from '@/features/document-upload/storage/sectorDocumentsStorage'
 import type { UploadedDocument } from '@/features/document-upload/types'
 import { useSectors } from '@/features/sectors/context/SectorsContext'
 import { PageHeader } from '@/shared/components/PageHeader'
@@ -70,11 +73,12 @@ export function CustomSectorPage() {
   const [docxHtml, setDocxHtml] = useState<string | null>(null)
   const [docxError, setDocxError] = useState<string | null>(null)
   const [isDocxLoading, setIsDocxLoading] = useState(false)
+  const [isDocumentsLoading, setIsDocumentsLoading] = useState(true)
+  const [documentsStore, setDocumentsStore] = useState<SectorDocumentsStore>({})
   const { sectorId } = useParams()
-  const { sectors } = useSectors()
+  const { sectors, isLoading: isSectorsLoading } = useSectors()
 
   const sector = sectors.find((item) => item.id === sectorId)
-  const documentsStore = readSectorDocumentsStore()
   const sectorDocuments = sector ? documentsStore[sector.id] ?? [] : []
   const selectedDocument = sectorDocuments.find((item) => item.id === selectedDocumentId) ?? null
   const selectedExtension = selectedDocument?.extension.toLowerCase() ?? ''
@@ -82,6 +86,38 @@ export function CustomSectorPage() {
 
   const canPreviewPdf = selectedExtension === 'pdf' && Boolean(selectedDocument?.previewDataUrl)
   const isDocx = selectedExtension === 'docx'
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadDocuments = async () => {
+      try {
+        const cloudDocuments = await readSectorDocumentsStore()
+
+        if (!isMounted) {
+          return
+        }
+
+        setDocumentsStore(cloudDocuments)
+      } catch {
+        if (!isMounted) {
+          return
+        }
+
+        setDocumentsStore({})
+      } finally {
+        if (isMounted) {
+          setIsDocumentsLoading(false)
+        }
+      }
+    }
+
+    loadDocuments()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   useEffect(() => {
     if (!isViewerOpen || !selectedDocumentId) {
@@ -139,7 +175,16 @@ export function CustomSectorPage() {
     return () => {
       cancelled = true
     }
-    }, [isDocx, isViewerOpen, selectedDocumentDataUrl, selectedDocumentId])
+  }, [isDocx, isViewerOpen, selectedDocumentDataUrl, selectedDocumentId])
+
+  if (isSectorsLoading || isDocumentsLoading) {
+    return (
+      <section className="content-card">
+        <h3>Carregando...</h3>
+        <p>Sincronizando dados do setor na nuvem.</p>
+      </section>
+    )
+  }
 
   if (!sector) {
     return (

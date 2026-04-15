@@ -50,10 +50,10 @@ export function StaffUsersPage() {
     setEditUserError(null)
   }
 
-  const handleCreateUserSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleCreateUserSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    const result = createUser({
+    const result = await createUser({
       displayName: newUserDisplayName,
       username: newUserUsername,
       password: newUserPassword,
@@ -71,7 +71,7 @@ export function StaffUsersPage() {
     closeCreateUserModal()
   }
 
-  const handleEditUserSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleEditUserSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
     if (!editingUserId) {
@@ -79,7 +79,7 @@ export function StaffUsersPage() {
       return
     }
 
-    const result = updateUser({
+    const result = await updateUser({
       id: editingUserId,
       displayName: editUserDisplayName,
       username: editUserUsername,
@@ -106,12 +106,12 @@ export function StaffUsersPage() {
     setUserToRemove(null)
   }
 
-  const handleConfirmRemoveUser = () => {
+  const handleConfirmRemoveUser = async () => {
     if (!userToRemove) {
       return
     }
 
-    const result = removeUser(userToRemove.id)
+    const result = await removeUser(userToRemove.id)
 
     notify({
       type: result.ok ? 'success' : 'error',

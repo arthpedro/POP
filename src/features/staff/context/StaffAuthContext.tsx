@@ -1,25 +1,25 @@
-/* eslint-disable react-refresh/only-export-components */
+﻿/* eslint-disable react-refresh/only-export-components */
 
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import staffUsersData from '@/data/staff-users.json'
+import { getCloudStaffUsers, saveCloudStaffUsers } from '@/shared/api/cloudApi'
 import type { AuthResult, StaffSession, StaffUser } from '@/features/staff/types/staff'
-
-const STAFF_SESSION_STORAGE_KEY = 'pops.staff.session'
-const STAFF_USERS_STORAGE_KEY = 'pops.staff.users'
 
 type StaffAuthContextValue = {
   currentUser: StaffSession | null
   isAuthenticated: boolean
+  isUsersLoading: boolean
+  loadError: string | null
   staffUsers: StaffUser[]
-  login: (username: string, password: string) => AuthResult
-  createUser: (input: { displayName: string; username: string; password: string }) => AuthResult
+  login: (username: string, password: string) => Promise<AuthResult>
+  createUser: (input: { displayName: string; username: string; password: string }) => Promise<AuthResult>
   updateUser: (input: {
     id: string
     displayName: string
     username: string
     password?: string
-  }) => AuthResult
-  removeUser: (id: string) => AuthResult
+  }) => Promise<AuthResult>
+  removeUser: (id: string) => Promise<AuthResult>
   logout: () => void
 }
 
@@ -52,60 +52,93 @@ function isValidStaffUser(candidate: unknown): candidate is StaffUser {
   )
 }
 
-function readStoredUsers() {
-  const rawValue = localStorage.getItem(STAFF_USERS_STORAGE_KEY)
-
-  if (!rawValue) {
-    return DEFAULT_USERS
-  }
-
-  try {
-    const parsed = JSON.parse(rawValue)
-
-    if (!Array.isArray(parsed)) {
-      return DEFAULT_USERS
-    }
-
-    const validUsers = parsed.filter(isValidStaffUser)
-
-    return validUsers.length > 0 ? validUsers : DEFAULT_USERS
-  } catch {
-    localStorage.removeItem(STAFF_USERS_STORAGE_KEY)
-    return DEFAULT_USERS
-  }
-}
-
-function saveUsers(nextUsers: StaffUser[]) {
-  localStorage.setItem(STAFF_USERS_STORAGE_KEY, JSON.stringify(nextUsers))
-}
-
-function readStoredSession() {
-  const rawValue = localStorage.getItem(STAFF_SESSION_STORAGE_KEY)
-
-  if (!rawValue) {
-    return null
-  }
-
-  try {
-    return JSON.parse(rawValue) as StaffSession
-  } catch {
-    localStorage.removeItem(STAFF_SESSION_STORAGE_KEY)
-    return null
-  }
+function normalizeStaffUsers(users: StaffUser[]) {
+  const validUsers = users.filter(isValidStaffUser)
+  return validUsers.length > 0 ? validUsers : DEFAULT_USERS
 }
 
 export function StaffAuthProvider({ children }: { children: ReactNode }) {
-  const [staffUsers, setStaffUsers] = useState<StaffUser[]>(() => readStoredUsers())
-  const [currentUser, setCurrentUser] = useState<StaffSession | null>(() => readStoredSession())
+  const [staffUsers, setStaffUsers] = useState<StaffUser[]>(DEFAULT_USERS)
+  const [currentUser, setCurrentUser] = useState<StaffSession | null>(null)
+  const [isUsersLoading, setIsUsersLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
-  const login = (username: string, password: string): AuthResult => {
+  useEffect(() => {
+    let isMounted = true
+
+    const loadUsers = async () => {
+      try {
+        const cloudUsers = await getCloudStaffUsers()
+
+        if (!isMounted) {
+          return
+        }
+
+        const normalizedUsers = normalizeStaffUsers(cloudUsers)
+        setStaffUsers(normalizedUsers)
+        setLoadError(null)
+
+        setCurrentUser((session) => {
+          if (!session) {
+            return null
+          }
+
+          const matchedUser = normalizedUsers.find((user) => user.id === session.id)
+
+          if (!matchedUser) {
+            return null
+          }
+
+          return {
+            id: matchedUser.id,
+            username: matchedUser.username,
+            displayName: matchedUser.displayName,
+          }
+        })
+      } catch {
+        if (!isMounted) {
+          return
+        }
+
+        setStaffUsers([])
+        setCurrentUser(null)
+        setLoadError('Nao foi possivel carregar os usuarios da nuvem.')
+      } finally {
+        if (isMounted) {
+          setIsUsersLoading(false)
+        }
+      }
+    }
+
+    loadUsers()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  const login = async (username: string, password: string): Promise<AuthResult> => {
     const normalizedUsername = username.trim()
     const normalizedPassword = password.trim()
 
     if (!normalizedUsername || !normalizedPassword) {
       return {
         ok: false,
-        message: 'Informe usuário e senha.',
+        message: 'Informe usuario e senha.',
+      }
+    }
+
+    if (isUsersLoading) {
+      return {
+        ok: false,
+        message: 'Aguarde. Usuarios ainda estao sendo carregados da nuvem.',
+      }
+    }
+
+    if (loadError) {
+      return {
+        ok: false,
+        message: loadError,
       }
     }
 
@@ -118,7 +151,7 @@ export function StaffAuthProvider({ children }: { children: ReactNode }) {
     if (!matchedUser) {
       return {
         ok: false,
-        message: 'Credenciais inválidas.',
+        message: 'Credenciais invalidas.',
       }
     }
 
@@ -128,7 +161,6 @@ export function StaffAuthProvider({ children }: { children: ReactNode }) {
       displayName: matchedUser.displayName,
     }
 
-    localStorage.setItem(STAFF_SESSION_STORAGE_KEY, JSON.stringify(nextSession))
     setCurrentUser(nextSession)
 
     return {
@@ -137,11 +169,11 @@ export function StaffAuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const createUser = (input: {
+  const createUser = async (input: {
     displayName: string
     username: string
     password: string
-  }): AuthResult => {
+  }): Promise<AuthResult> => {
     const normalizedDisplayName = input.displayName.trim()
     const normalizedUsername = input.username.trim().toLowerCase()
     const normalizedPassword = input.password.trim()
@@ -149,14 +181,14 @@ export function StaffAuthProvider({ children }: { children: ReactNode }) {
     if (!normalizedDisplayName || !normalizedUsername || !normalizedPassword) {
       return {
         ok: false,
-        message: 'Informe nome, usuário e senha.',
+        message: 'Informe nome, usuario e senha.',
       }
     }
 
     if (normalizedUsername.length < 3) {
       return {
         ok: false,
-        message: 'O usuário deve ter pelo menos 3 caracteres.',
+        message: 'O usuario deve ter pelo menos 3 caracteres.',
       }
     }
 
@@ -170,7 +202,7 @@ export function StaffAuthProvider({ children }: { children: ReactNode }) {
     if (staffUsers.some((user) => user.username.toLowerCase() === normalizedUsername)) {
       return {
         ok: false,
-        message: 'Já existe um usuário com este login.',
+        message: 'Ja existe um usuario com este login.',
       }
     }
 
@@ -197,21 +229,29 @@ export function StaffAuthProvider({ children }: { children: ReactNode }) {
 
     const nextUsers = [...staffUsers, nextUser]
 
-    setStaffUsers(nextUsers)
-    saveUsers(nextUsers)
+    try {
+      const savedUsers = await saveCloudStaffUsers(nextUsers)
+      setStaffUsers(normalizeStaffUsers(savedUsers))
 
-    return {
-      ok: true,
-      message: 'Usuário criado com permissão administrativa.',
+      return {
+        ok: true,
+        message: 'Usuario criado com permissao administrativa.',
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        message:
+          error instanceof Error ? error.message : 'Nao foi possivel criar o usuario na nuvem.',
+      }
     }
   }
 
-  const updateUser = (input: {
+  const updateUser = async (input: {
     id: string
     displayName: string
     username: string
     password?: string
-  }): AuthResult => {
+  }): Promise<AuthResult> => {
     const normalizedDisplayName = input.displayName.trim()
     const normalizedUsername = input.username.trim().toLowerCase()
     const normalizedPassword = input.password?.trim() ?? ''
@@ -219,14 +259,14 @@ export function StaffAuthProvider({ children }: { children: ReactNode }) {
     if (!normalizedDisplayName || !normalizedUsername) {
       return {
         ok: false,
-        message: 'Informe nome e usuário.',
+        message: 'Informe nome e usuario.',
       }
     }
 
     if (normalizedUsername.length < 3) {
       return {
         ok: false,
-        message: 'O usuário deve ter pelo menos 3 caracteres.',
+        message: 'O usuario deve ter pelo menos 3 caracteres.',
       }
     }
 
@@ -242,20 +282,19 @@ export function StaffAuthProvider({ children }: { children: ReactNode }) {
     if (!targetUser) {
       return {
         ok: false,
-        message: 'Usuário não encontrado.',
+        message: 'Usuario nao encontrado.',
       }
     }
 
     if (
       staffUsers.some(
         (user) =>
-          user.id !== input.id &&
-          user.username.toLowerCase() === normalizedUsername,
+          user.id !== input.id && user.username.toLowerCase() === normalizedUsername,
       )
     ) {
       return {
         ok: false,
-        message: 'Já existe um usuário com este login.',
+        message: 'Ja existe um usuario com este login.',
       }
     }
 
@@ -270,38 +309,49 @@ export function StaffAuthProvider({ children }: { children: ReactNode }) {
         : user,
     )
 
-    setStaffUsers(nextUsers)
-    saveUsers(nextUsers)
+    try {
+      const savedUsers = normalizeStaffUsers(await saveCloudStaffUsers(nextUsers))
+      setStaffUsers(savedUsers)
 
-    if (currentUser?.id === input.id) {
-      const nextSession: StaffSession = {
-        id: input.id,
-        username: normalizedUsername,
-        displayName: normalizedDisplayName,
+      if (currentUser?.id === input.id) {
+        const updatedCurrentUser = savedUsers.find((user) => user.id === input.id)
+
+        if (updatedCurrentUser) {
+          setCurrentUser({
+            id: updatedCurrentUser.id,
+            username: updatedCurrentUser.username,
+            displayName: updatedCurrentUser.displayName,
+          })
+        }
       }
 
-      setCurrentUser(nextSession)
-      localStorage.setItem(STAFF_SESSION_STORAGE_KEY, JSON.stringify(nextSession))
-    }
-
-    return {
-      ok: true,
-      message: 'Usuário atualizado com sucesso.',
+      return {
+        ok: true,
+        message: 'Usuario atualizado com sucesso.',
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Nao foi possivel atualizar o usuario na nuvem.',
+      }
     }
   }
 
-  const removeUser = (id: string): AuthResult => {
+  const removeUser = async (id: string): Promise<AuthResult> => {
     if (staffUsers.length <= 1) {
       return {
         ok: false,
-        message: 'Pelo menos um usuário administrador deve permanecer.',
+        message: 'Pelo menos um usuario administrador deve permanecer.',
       }
     }
 
     if (currentUser?.id === id) {
       return {
         ok: false,
-        message: 'Não é possível remover o usuário atualmente logado.',
+        message: 'Nao e possivel remover o usuario atualmente logado.',
       }
     }
 
@@ -310,29 +360,38 @@ export function StaffAuthProvider({ children }: { children: ReactNode }) {
     if (!targetUser) {
       return {
         ok: false,
-        message: 'Usuário não encontrado.',
+        message: 'Usuario nao encontrado.',
       }
     }
 
     const nextUsers = staffUsers.filter((user) => user.id !== id)
 
-    setStaffUsers(nextUsers)
-    saveUsers(nextUsers)
+    try {
+      const savedUsers = normalizeStaffUsers(await saveCloudStaffUsers(nextUsers))
+      setStaffUsers(savedUsers)
 
-    return {
-      ok: true,
-      message: 'Usuário removido com sucesso.',
+      return {
+        ok: true,
+        message: 'Usuario removido com sucesso.',
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        message:
+          error instanceof Error ? error.message : 'Nao foi possivel remover o usuario na nuvem.',
+      }
     }
   }
 
   const logout = () => {
-    localStorage.removeItem(STAFF_SESSION_STORAGE_KEY)
     setCurrentUser(null)
   }
 
   const value: StaffAuthContextValue = {
     currentUser,
     isAuthenticated: currentUser !== null,
+    isUsersLoading,
+    loadError,
     staffUsers,
     login,
     createUser,

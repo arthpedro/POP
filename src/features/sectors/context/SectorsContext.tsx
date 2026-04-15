@@ -1,19 +1,21 @@
-/* eslint-disable react-refresh/only-export-components */
+﻿/* eslint-disable react-refresh/only-export-components */
 
 import {
   createContext,
+  useCallback,
   useContext,
+  useEffect,
   useState,
   type ReactNode,
 } from 'react'
 import defaultSectorsData from '@/data/default-sectors.json'
+import { getCloudSectors, saveCloudSectors } from '@/shared/api/cloudApi'
 import type { Sector, SectorMutationResult } from '@/features/sectors/types/sector'
-
-const SECTORS_STORAGE_KEY = 'pops.sectors'
 
 type SectorsContextValue = {
   sectors: Sector[]
-  replaceSectors: (nextSectors: Sector[]) => SectorMutationResult
+  isLoading: boolean
+  replaceSectors: (nextSectors: Sector[]) => Promise<SectorMutationResult>
 }
 
 const SectorsContext = createContext<SectorsContextValue | null>(null)
@@ -36,37 +38,32 @@ function isValidSector(candidate: unknown): candidate is Sector {
   )
 }
 
-function readStoredSectors() {
-  const rawValue = localStorage.getItem(SECTORS_STORAGE_KEY)
+function normalizeSectors(nextSectors: Sector[]) {
+  const validSectors = nextSectors.filter(isValidSector)
 
-  if (!rawValue) {
-    return DEFAULT_SECTORS
-  }
-
-  try {
-    const parsed = JSON.parse(rawValue)
-
-    if (!Array.isArray(parsed)) {
-      return DEFAULT_SECTORS
-    }
-
-    const validSectors = parsed.filter(isValidSector)
-
-    return validSectors.length > 0 ? validSectors : DEFAULT_SECTORS
-  } catch {
-    localStorage.removeItem(SECTORS_STORAGE_KEY)
-    return DEFAULT_SECTORS
-  }
-}
-
-function saveSectors(nextSectors: Sector[]) {
-  localStorage.setItem(SECTORS_STORAGE_KEY, JSON.stringify(nextSectors))
+  return validSectors.length > 0 ? validSectors : DEFAULT_SECTORS
 }
 
 export function SectorsProvider({ children }: { children: ReactNode }) {
-  const [sectors, setSectors] = useState<Sector[]>(() => readStoredSectors())
+  const [sectors, setSectors] = useState<Sector[]>(DEFAULT_SECTORS)
+  const [isLoading, setIsLoading] = useState(true)
 
-  const replaceSectors = (nextSectors: Sector[]): SectorMutationResult => {
+  const loadSectors = useCallback(async () => {
+    try {
+      const cloudSectors = await getCloudSectors()
+      setSectors(normalizeSectors(cloudSectors))
+    } catch {
+      setSectors(DEFAULT_SECTORS)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadSectors()
+  }, [loadSectors])
+
+  const replaceSectors = async (nextSectors: Sector[]): Promise<SectorMutationResult> => {
     if (nextSectors.length === 0) {
       return {
         ok: false,
@@ -108,17 +105,28 @@ export function SectorsProvider({ children }: { children: ReactNode }) {
       pathSet.add(sector.path)
     }
 
-    setSectors(normalizedSectors)
-    saveSectors(normalizedSectors)
+    try {
+      const savedSectors = await saveCloudSectors(normalizedSectors)
+      setSectors(normalizeSectors(savedSectors))
 
-    return {
-      ok: true,
-      message: 'Alterações salvas com sucesso.',
+      return {
+        ok: true,
+        message: 'Alteracoes salvas com sucesso na nuvem.',
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Nao foi possivel salvar alteracoes na nuvem.',
+      }
     }
   }
 
   const value: SectorsContextValue = {
     sectors,
+    isLoading,
     replaceSectors,
   }
 
