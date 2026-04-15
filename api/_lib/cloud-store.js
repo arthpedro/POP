@@ -1,7 +1,5 @@
 ﻿import { Redis } from '@upstash/redis'
 
-const redis = Redis.fromEnv()
-
 const APP_STATE_KEY = 'pops:app-state:v1'
 
 const DEFAULT_SECTORS = [
@@ -157,16 +155,24 @@ function normalizeState(value) {
   }
 }
 
-function ensureRedisConfiguration() {
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+function getRedisClient() {
+  const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN
+
+  if (!url || !token) {
     throw new Error(
-      'Redis na nuvem nao configurado. Defina UPSTASH_REDIS_REST_URL e UPSTASH_REDIS_REST_TOKEN no projeto.',
+      'Redis/KV nao configurado. Defina UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN (ou KV_REST_API_URL + KV_REST_API_TOKEN).',
     )
   }
+
+  return new Redis({
+    url,
+    token,
+  })
 }
 
 export async function readCloudState() {
-  ensureRedisConfiguration()
+  const redis = getRedisClient()
 
   const rawState = await redis.get(APP_STATE_KEY)
 
@@ -179,7 +185,7 @@ export async function readCloudState() {
 }
 
 export async function writeCloudState(nextState) {
-  ensureRedisConfiguration()
+  const redis = getRedisClient()
 
   const normalizedState = normalizeState(nextState)
   await redis.set(APP_STATE_KEY, normalizedState)

@@ -60,8 +60,8 @@ Endpoints usados pelo frontend:
 
 1. No projeto da Vercel, adicione a integracao **Upstash Redis** (Marketplace).
 2. Confirme que as variaveis foram criadas no projeto:
-   - `UPSTASH_REDIS_REST_URL`
-   - `UPSTASH_REDIS_REST_TOKEN`
+   - recomendado: `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`
+   - alternativo (legado): `KV_REST_API_URL` + `KV_REST_API_TOKEN`
 3. Faça novo deploy.
 
 Sem essas variaveis, a API retorna erro de configuracao da nuvem.
