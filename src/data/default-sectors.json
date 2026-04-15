@@ -1,0 +1,32 @@
+{
+  "sectors": [
+    {
+      "id": "fiscal",
+      "name": "Setor Fiscal",
+      "path": "/",
+      "view": "dashboard",
+      "isCore": true
+    },
+    {
+      "id": "contabil",
+      "name": "Setor Contábil",
+      "path": "/documentos",
+      "view": "documents",
+      "isCore": true
+    },
+    {
+      "id": "pessoal",
+      "name": "Setor Pessoal",
+      "path": "/clientes",
+      "view": "clients",
+      "isCore": true
+    },
+    {
+      "id": "societario",
+      "name": "Setor Societário",
+      "path": "/configuracoes",
+      "view": "settings",
+      "isCore": true
+    }
+  ]
+}
