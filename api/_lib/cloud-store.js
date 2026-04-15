@@ -157,11 +157,14 @@ function normalizeState(value) {
 
 function getRedisClient() {
   const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN
+  const token =
+    process.env.UPSTASH_REDIS_REST_TOKEN ??
+    process.env.KV_REST_API_TOKEN ??
+    process.env.KV_REST_API_READ_ONLY_TOKEN
 
   if (!url || !token) {
     throw new Error(
-      'Redis/KV nao configurado. Defina UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN (ou KV_REST_API_URL + KV_REST_API_TOKEN).',
+      'Redis/KV nao configurado. Defina UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN (ou KV_REST_API_URL + KV_REST_API_TOKEN/KV_REST_API_READ_ONLY_TOKEN).',
     )
   }
 
