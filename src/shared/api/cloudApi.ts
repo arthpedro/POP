@@ -6,6 +6,14 @@ type ApiErrorPayload = {
   message?: string
 }
 
+function getInvalidApiResponseMessage() {
+  if (import.meta.env.DEV) {
+    return 'A rota /api/* nao esta sendo executada neste servidor local. Use vercel dev para testar a versao final com Serverless Functions.'
+  }
+
+  return 'A API retornou uma resposta invalida. Verifique a configuracao das rotas /api/* no deploy.'
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     headers: {
@@ -14,23 +22,37 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     },
     ...init,
   })
+  const responseText = await response.text()
+
+  const parsePayload = () => {
+    try {
+      return JSON.parse(responseText) as T & ApiErrorPayload
+    } catch {
+      throw new Error(getInvalidApiResponseMessage())
+    }
+  }
 
   if (!response.ok) {
     let message = 'Falha ao acessar dados em nuvem.'
 
     try {
-      const payload = (await response.json()) as ApiErrorPayload
+      const payload = parsePayload()
       if (payload.message) {
         message = payload.message
       }
-    } catch {
-      // ignore JSON parse errors and keep fallback message
+    } catch (error) {
+      message = error instanceof Error ? error.message : message
+    }
+
+    if (response.status === 404 && import.meta.env.DEV) {
+      message =
+        'API em nuvem nao encontrada no servidor local. Use vercel dev para testar /api/* ou publique no Vercel com Upstash Redis configurado.'
     }
 
     throw new Error(message)
   }
 
-  return (await response.json()) as T
+  return parsePayload()
 }
 
 export async function getCloudSectors() {

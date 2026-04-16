@@ -96,14 +96,18 @@ export function StaffAuthProvider({ children }: { children: ReactNode }) {
         setStaffUsers(normalizedUsers)
         setLoadError(null)
         setCurrentUser((session) => syncSessionWithUsers(session, normalizedUsers))
-      } catch {
+      } catch (error) {
         if (!isMounted) {
           return
         }
 
         setStaffUsers([])
         setCurrentUser(null)
-        setLoadError('Nao foi possivel carregar os usuarios da nuvem.')
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : 'Nao foi possivel carregar os usuarios da nuvem.',
+        )
       } finally {
         if (isMounted) {
           setIsUsersLoading(false)
