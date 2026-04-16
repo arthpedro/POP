@@ -57,6 +57,24 @@ function normalizeStaffUsers(users: StaffUser[]) {
   return validUsers.length > 0 ? validUsers : DEFAULT_USERS
 }
 
+function syncSessionWithUsers(session: StaffSession | null, users: StaffUser[]) {
+  if (!session) {
+    return null
+  }
+
+  const matchedUser = users.find((user) => user.id === session.id)
+
+  if (!matchedUser) {
+    return null
+  }
+
+  return {
+    id: matchedUser.id,
+    username: matchedUser.username,
+    displayName: matchedUser.displayName,
+  }
+}
+
 export function StaffAuthProvider({ children }: { children: ReactNode }) {
   const [staffUsers, setStaffUsers] = useState<StaffUser[]>(DEFAULT_USERS)
   const [currentUser, setCurrentUser] = useState<StaffSession | null>(null)
@@ -77,24 +95,7 @@ export function StaffAuthProvider({ children }: { children: ReactNode }) {
         const normalizedUsers = normalizeStaffUsers(cloudUsers)
         setStaffUsers(normalizedUsers)
         setLoadError(null)
-
-        setCurrentUser((session) => {
-          if (!session) {
-            return null
-          }
-
-          const matchedUser = normalizedUsers.find((user) => user.id === session.id)
-
-          if (!matchedUser) {
-            return null
-          }
-
-          return {
-            id: matchedUser.id,
-            username: matchedUser.username,
-            displayName: matchedUser.displayName,
-          }
-        })
+        setCurrentUser((session) => syncSessionWithUsers(session, normalizedUsers))
       } catch {
         if (!isMounted) {
           return

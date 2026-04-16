@@ -2,36 +2,8 @@
 
 const APP_STATE_KEY = 'pops:app-state:v1'
 
-const DEFAULT_SECTORS = [
-  {
-    id: 'fiscal',
-    name: 'Setor Fiscal',
-    path: '/',
-    view: 'dashboard',
-    isCore: true,
-  },
-  {
-    id: 'contabil',
-    name: 'Setor Contabil',
-    path: '/documentos',
-    view: 'documents',
-    isCore: true,
-  },
-  {
-    id: 'pessoal',
-    name: 'Setor Pessoal',
-    path: '/clientes',
-    view: 'clients',
-    isCore: true,
-  },
-  {
-    id: 'societario',
-    name: 'Setor Societario',
-    path: '/configuracoes',
-    view: 'settings',
-    isCore: true,
-  },
-]
+const LEGACY_CORE_SECTOR_PATHS = new Set(['/', '/documentos', '/clientes', '/configuracoes'])
+const LEGACY_CORE_SECTOR_VIEWS = new Set(['dashboard', 'documents', 'clients', 'settings'])
 
 const DEFAULT_STAFF_USERS = [
   {
@@ -43,7 +15,7 @@ const DEFAULT_STAFF_USERS = [
 ]
 
 const DEFAULT_STATE = {
-  sectors: DEFAULT_SECTORS,
+  sectors: [],
   staffUsers: DEFAULT_STAFF_USERS,
   documentsBySector: {},
 }
@@ -61,8 +33,13 @@ function isValidSector(value) {
     typeof value.id === 'string' &&
     typeof value.name === 'string' &&
     typeof value.path === 'string' &&
-    typeof value.view === 'string' &&
-    typeof value.isCore === 'boolean'
+    value.id.trim().length > 0 &&
+    value.name.trim().length > 0 &&
+    value.path.trim().length > 0 &&
+    value.isCore !== true &&
+    !LEGACY_CORE_SECTOR_PATHS.has(value.path) &&
+    !LEGACY_CORE_SECTOR_VIEWS.has(value.view) &&
+    value.path.trim() === `/setores/${value.id.trim()}`
   )
 }
 
@@ -99,11 +76,16 @@ function isValidUploadedDocument(value) {
 
 export function normalizeSectors(value) {
   if (!Array.isArray(value)) {
-    return DEFAULT_SECTORS
+    return []
   }
 
-  const normalized = value.filter(isValidSector)
-  return normalized.length > 0 ? normalized : DEFAULT_SECTORS
+  return value
+    .filter(isValidSector)
+    .map((sector) => ({
+      id: sector.id.trim(),
+      name: sector.name.trim(),
+      path: sector.path.trim(),
+    }))
 }
 
 export function normalizeStaffUsers(value) {
@@ -115,7 +97,7 @@ export function normalizeStaffUsers(value) {
   return normalized.length > 0 ? normalized : DEFAULT_STAFF_USERS
 }
 
-export function normalizeDocumentsBySector(value) {
+export function normalizeDocumentsBySector(value, allowedSectorIds = null) {
   if (!isPlainObject(value)) {
     return {}
   }
@@ -123,6 +105,10 @@ export function normalizeDocumentsBySector(value) {
   const nextStore = {}
 
   Object.entries(value).forEach(([sectorId, documents]) => {
+    if (allowedSectorIds && !allowedSectorIds.has(sectorId)) {
+      return
+    }
+
     if (!Array.isArray(documents)) {
       return
     }
@@ -148,10 +134,13 @@ function normalizeState(value) {
     return DEFAULT_STATE
   }
 
+  const sectors = normalizeSectors(value.sectors)
+  const sectorIds = new Set(sectors.map((sector) => sector.id))
+
   return {
-    sectors: normalizeSectors(value.sectors),
+    sectors,
     staffUsers: normalizeStaffUsers(value.staffUsers),
-    documentsBySector: normalizeDocumentsBySector(value.documentsBySector),
+    documentsBySector: normalizeDocumentsBySector(value.documentsBySector, sectorIds),
   }
 }
 
@@ -184,7 +173,13 @@ export async function readCloudState() {
     return DEFAULT_STATE
   }
 
-  return normalizeState(rawState)
+  const normalizedState = normalizeState(rawState)
+
+  if (JSON.stringify(normalizedState) !== JSON.stringify(rawState)) {
+    await redis.set(APP_STATE_KEY, normalizedState)
+  }
+
+  return normalizedState
 }
 
 export async function writeCloudState(nextState) {

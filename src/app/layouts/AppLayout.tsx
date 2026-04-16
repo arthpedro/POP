@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useSectors } from '@/features/sectors/context/SectorsContext'
 import { useStaffAuth } from '@/features/staff/context/StaffAuthContext'
 
@@ -8,7 +8,6 @@ const currentDateLabel = new Intl.DateTimeFormat('pt-BR', {
 }).format(new Date())
 
 export function AppLayout() {
-  const location = useLocation()
   const navigate = useNavigate()
   const { sectors } = useSectors()
   const { isAuthenticated, login } = useStaffAuth()
@@ -18,7 +17,6 @@ export function AppLayout() {
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState<string | null>(null)
   const [isLoggingIn, setIsLoggingIn] = useState(false)
-  const isOnHomePage = location.pathname === '/'
 
   const openStaffModal = () => {
     if (isAuthenticated) {
@@ -68,16 +66,19 @@ export function AppLayout() {
         </div>
 
         <nav className="main-nav" aria-label="Navegação principal">
-          {sectors.map((item) => (
-            <NavLink
-              key={item.id}
-              to={item.path}
-              end={item.path === '/'}
-              className={({ isActive }) => `main-nav-link${isActive ? ' is-active' : ''}`}
-            >
-              {item.name}
-            </NavLink>
-          ))}
+          {sectors.length === 0 ? (
+            <p className="sidebar-empty">Nenhum setor criado.</p>
+          ) : (
+            sectors.map((item) => (
+              <NavLink
+                key={item.id}
+                to={item.path}
+                className={({ isActive }) => `main-nav-link${isActive ? ' is-active' : ''}`}
+              >
+                {item.name}
+              </NavLink>
+            ))
+          )}
         </nav>
 
         <div className="compliance-note">
@@ -90,21 +91,19 @@ export function AppLayout() {
       </aside>
 
       <section className="content-shell">
-        {isOnHomePage ? (
-          <header className="topbar">
-            <div className="topbar-left">
-              <p className="topbar-kicker">Bem-vindo ao POPS</p>
-              <p className="topbar-caption">Central de operações e documentos por setor</p>
-            </div>
+        <header className="topbar">
+          <div className="topbar-left">
+            <p className="topbar-kicker">Bem-vindo ao POPS</p>
+            <p className="topbar-caption">Central de operações e documentos por setor</p>
+          </div>
 
-            <div className="topbar-right">
-              <p className="topbar-date">{currentDateLabel}</p>
-              <button type="button" className="staff-button" onClick={openStaffModal}>
-                Staff
-              </button>
-            </div>
-          </header>
-        ) : null}
+          <div className="topbar-right">
+            <p className="topbar-date">{currentDateLabel}</p>
+            <button type="button" className="staff-button" onClick={openStaffModal}>
+              Staff
+            </button>
+          </div>
+        </header>
 
         <main className="page-content">
           <div className="page-content-body">

@@ -9,7 +9,7 @@ import type { UploadedDocument } from '@/features/document-upload/types'
 import { useSectors } from '@/features/sectors/context/SectorsContext'
 import { PageHeader } from '@/shared/components/PageHeader'
 
-type ThumbTone = 'pdf' | 'word' | 'excel' | 'powerpoint' | 'image' | 'archive' | 'generic'
+type ThumbTone = 'pdf' | 'word' | 'excel' | 'powerpoint' | 'image' | 'archive' | 'other'
 
 type ThumbBadge = {
   label: string
@@ -49,7 +49,7 @@ function getThumbBadge(document: UploadedDocument): ThumbBadge {
     return { label: 'ZIP', tone: 'archive' }
   }
 
-  return { label: (extension || 'doc').toUpperCase(), tone: 'generic' }
+  return { label: (extension || 'doc').toUpperCase(), tone: 'other' }
 }
 
 function DocumentThumbnail({ document }: { document: UploadedDocument }) {
@@ -62,8 +62,8 @@ function DocumentThumbnail({ document }: { document: UploadedDocument }) {
   )
 }
 
-async function dataUrlToArrayBuffer(dataUrl: string) {
-  const response = await fetch(dataUrl)
+async function documentUrlToArrayBuffer(documentUrl: string) {
+  const response = await fetch(documentUrl)
   return response.arrayBuffer()
 }
 
@@ -148,7 +148,7 @@ export function CustomSectorPage() {
       setDocxError(null)
 
       try {
-        const arrayBuffer = await dataUrlToArrayBuffer(selectedDocumentDataUrl)
+        const arrayBuffer = await documentUrlToArrayBuffer(selectedDocumentDataUrl)
         const result = await mammoth.convertToHtml({ arrayBuffer })
 
         if (cancelled) {

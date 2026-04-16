@@ -138,6 +138,16 @@ button {
   gap: 8px;
 }
 
+.sidebar-empty {
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  color: var(--color-text-muted);
+  background: var(--color-surface-alt);
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
 .main-nav-link {
   position: relative;
   text-decoration: none;
@@ -319,41 +329,6 @@ button {
   gap: 10px;
 }
 
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.stat-card {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-alt);
-  padding: 16px;
-}
-
-.stat-label {
-  color: var(--color-text-muted);
-  font-size: 0.84rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 600;
-}
-
-.stat-value {
-  margin-top: 8px;
-  font-size: 1.95rem;
-  line-height: 1;
-  color: var(--color-brand-strong);
-  font-weight: 800;
-}
-
-.stat-footnote {
-  margin-top: 10px;
-  color: var(--color-text-muted);
-  font-size: 0.84rem;
-}
-
 .add-file-area {
   border: 1px dashed var(--color-border-strong);
   border-radius: var(--radius-md);
@@ -477,12 +452,6 @@ th {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-weight: 700;
-}
-
-.settings-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 12px;
 }
 
 .surface-card {
@@ -874,7 +843,7 @@ td input:focus {
   background: linear-gradient(160deg, #7d6858 0%, #5b4b3e 100%);
 }
 
-.sector-doc-thumb-label-generic {
+.sector-doc-thumb-label-other {
   background: linear-gradient(160deg, #748399 0%, #5b697d 100%);
 }
 
@@ -1157,10 +1126,6 @@ input:focus-visible {
   }
 
   .main-nav {
-    grid-template-columns: 1fr;
-  }
-
-  .stats-grid {
     grid-template-columns: 1fr;
   }
 

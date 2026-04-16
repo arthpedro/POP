@@ -8,7 +8,6 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import defaultSectorsData from '@/data/default-sectors.json'
 import { getCloudSectors, saveCloudSectors } from '@/shared/api/cloudApi'
 import type { Sector, SectorMutationResult } from '@/features/sectors/types/sector'
 
@@ -20,32 +19,63 @@ type SectorsContextValue = {
 
 const SectorsContext = createContext<SectorsContextValue | null>(null)
 
-const DEFAULT_SECTORS = (defaultSectorsData.sectors ?? []) as Sector[]
+const LEGACY_CORE_SECTOR_PATHS = new Set(['/', '/documentos', '/clientes', '/configuracoes'])
+const LEGACY_CORE_SECTOR_VIEWS = new Set(['dashboard', 'documents', 'clients', 'settings'])
 
-function isValidSector(candidate: unknown): candidate is Sector {
+function normalizeSector(candidate: unknown): Sector | null {
   if (!candidate || typeof candidate !== 'object') {
-    return false
+    return null
   }
 
   const record = candidate as Record<string, unknown>
 
-  return (
-    typeof record.id === 'string' &&
-    typeof record.name === 'string' &&
-    typeof record.path === 'string' &&
-    typeof record.view === 'string' &&
-    typeof record.isCore === 'boolean'
-  )
+  if (
+    record.isCore === true ||
+    (typeof record.view === 'string' && LEGACY_CORE_SECTOR_VIEWS.has(record.view)) ||
+    (typeof record.path === 'string' && LEGACY_CORE_SECTOR_PATHS.has(record.path))
+  ) {
+    return null
+  }
+
+  if (
+    typeof record.id !== 'string' ||
+    typeof record.name !== 'string' ||
+    typeof record.path !== 'string'
+  ) {
+    return null
+  }
+
+  const id = record.id.trim()
+  const name = record.name.trim()
+  const path = record.path.trim()
+
+  if (!id || !name || !path) {
+    return null
+  }
+
+  if (path !== `/setores/${id}`) {
+    return null
+  }
+
+  return {
+    id,
+    name,
+    path,
+  }
 }
 
-function normalizeSectors(nextSectors: Sector[]) {
-  const validSectors = nextSectors.filter(isValidSector)
+function normalizeSectors(nextSectors: unknown) {
+  if (!Array.isArray(nextSectors)) {
+    return []
+  }
 
-  return validSectors.length > 0 ? validSectors : DEFAULT_SECTORS
+  return nextSectors
+    .map(normalizeSector)
+    .filter((sector): sector is Sector => sector !== null)
 }
 
 export function SectorsProvider({ children }: { children: ReactNode }) {
-  const [sectors, setSectors] = useState<Sector[]>(DEFAULT_SECTORS)
+  const [sectors, setSectors] = useState<Sector[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   const loadSectors = useCallback(async () => {
@@ -53,7 +83,7 @@ export function SectorsProvider({ children }: { children: ReactNode }) {
       const cloudSectors = await getCloudSectors()
       setSectors(normalizeSectors(cloudSectors))
     } catch {
-      setSectors(DEFAULT_SECTORS)
+      setSectors([])
     } finally {
       setIsLoading(false)
     }
@@ -64,22 +94,12 @@ export function SectorsProvider({ children }: { children: ReactNode }) {
   }, [loadSectors])
 
   const replaceSectors = async (nextSectors: Sector[]): Promise<SectorMutationResult> => {
-    if (nextSectors.length === 0) {
+    const normalizedSectors = normalizeSectors(nextSectors)
+
+    if (normalizedSectors.length !== nextSectors.length) {
       return {
         ok: false,
-        message: 'Pelo menos um setor deve permanecer.',
-      }
-    }
-
-    const normalizedSectors = nextSectors.map((sector) => ({
-      ...sector,
-      name: sector.name.trim(),
-    }))
-
-    if (normalizedSectors.some((sector) => sector.name.length === 0)) {
-      return {
-        ok: false,
-        message: 'Todos os setores precisam ter nome.',
+        message: 'A lista contem setores invalidos.',
       }
     }
 

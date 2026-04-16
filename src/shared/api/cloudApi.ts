@@ -1,6 +1,6 @@
-﻿import type { Sector } from '@/features/sectors/types/sector'
-import type { StaffUser } from '@/features/staff/types/staff'
 import type { SectorDocumentsStore } from '@/features/document-upload/storage/sectorDocumentsStorage'
+import type { Sector } from '@/features/sectors/types/sector'
+import type { StaffUser } from '@/features/staff/types/staff'
 
 type ApiErrorPayload = {
   message?: string
@@ -62,15 +62,29 @@ export async function saveCloudStaffUsers(staffUsers: StaffUser[]) {
 }
 
 export async function getCloudDocumentsBySector() {
-  const payload = await requestJson<{ documentsBySector: SectorDocumentsStore }>('/api/cloud/documents')
+  const payload = await requestJson<{ documentsBySector: SectorDocumentsStore }>(
+    '/api/cloud/documents',
+  )
   return payload.documentsBySector
 }
 
 export async function saveCloudDocumentsBySector(documentsBySector: SectorDocumentsStore) {
-  const payload = await requestJson<{ documentsBySector: SectorDocumentsStore }>('/api/cloud/documents', {
-    method: 'PUT',
-    body: JSON.stringify({ documentsBySector }),
-  })
+  const payload = await requestJson<{ documentsBySector: SectorDocumentsStore }>(
+    '/api/cloud/documents',
+    {
+      method: 'PUT',
+      body: JSON.stringify({ documentsBySector }),
+    },
+  )
 
   return payload.documentsBySector
+}
+
+export async function deleteCloudBlob(url: string) {
+  const payload = await requestJson<{ ok: boolean }>('/api/cloud/blob-delete', {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  })
+
+  return payload.ok
 }

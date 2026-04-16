@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState, type FormEvent } from 'react'
+﻿import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { upload } from '@vercel/blob/client'
 import { DocumentDropzone } from '@/features/document-upload/components/DocumentDropzone'
 import { UploadedDocumentsList } from '@/features/document-upload/components/UploadedDocumentsList'
 import { useStaffNotifications } from '@/features/staff/context/StaffNotificationsContext'
@@ -10,6 +11,7 @@ import {
 import type { UploadedDocument } from '@/features/document-upload/types'
 import { makeDocumentSignature, validateDocument } from '@/features/document-upload/utils'
 import { useSectors } from '@/features/sectors/context/SectorsContext'
+import { deleteCloudBlob } from '@/shared/api/cloudApi'
 import type { Sector } from '@/features/sectors/types/sector'
 
 function slugify(value: string) {
@@ -40,17 +42,6 @@ function getNextCustomSectorId(currentSectors: Sector[], sectorName: string) {
   return nextId
 }
 
-function fileToDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-
-    reader.onload = () => resolve(String(reader.result ?? ''))
-    reader.onerror = () => reject(new Error(`Falha ao ler ${file.name}.`))
-
-    reader.readAsDataURL(file)
-  })
-}
-
 function buildDisplayFileName(
   baseName: string,
   extension: string,
@@ -72,6 +63,17 @@ function buildDisplayFileName(
   }
 
   return `${normalizedBaseName} (${index + 1})${extensionSuffix}`
+}
+
+function buildBlobPath(sectorId: string, fileName: string) {
+  const normalizedFileName = fileName
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+  return `setores/${sectorId}/${crypto.randomUUID()}-${normalizedFileName || 'documento'}`
 }
 
 function removeExtension(fileName: string) {
@@ -102,12 +104,9 @@ export function StaffSectorsPage() {
   const [isFileNameModalOpen, setIsFileNameModalOpen] = useState(false)
   const [fileDisplayNameInput, setFileDisplayNameInput] = useState('')
   const [fileNameInputError, setFileNameInputError] = useState<string | null>(null)
+  const lastSyncedSectorsRef = useRef<Sector[]>([])
 
   const hasPendingChanges = useMemo(() => {
-    if (workingSectors.length === 0) {
-      return false
-    }
-
     return JSON.stringify(workingSectors) !== JSON.stringify(sectors)
   }, [workingSectors, sectors])
 
@@ -121,14 +120,14 @@ export function StaffSectorsPage() {
     : []
 
   useEffect(() => {
-    setWorkingSectors((currentSectors) => {
-      if (currentSectors.length === 0) {
-        return sectors
-      }
+    const lastSyncedSectors = lastSyncedSectorsRef.current
 
-      const isDirty = JSON.stringify(currentSectors) !== JSON.stringify(sectors)
+    setWorkingSectors((currentSectors) => {
+      const isDirty = JSON.stringify(currentSectors) !== JSON.stringify(lastSyncedSectors)
       return isDirty ? currentSectors : sectors
     })
+
+    lastSyncedSectorsRef.current = sectors
   }, [sectors])
 
   useEffect(() => {
@@ -190,8 +189,6 @@ export function StaffSectorsPage() {
       id: nextId,
       name: trimmedName,
       path: `/setores/${nextId}`,
-      view: 'custom',
-      isCore: false,
     }
 
     setWorkingSectors((currentSectors) => [...currentSectors, nextSector])
@@ -211,14 +208,6 @@ export function StaffSectorsPage() {
   }
 
   const handleRemoveSector = (sectorId: string) => {
-    if (workingSectors.length <= 1) {
-      notify({
-        type: 'error',
-        message: 'Pelo menos um setor deve permanecer.',
-      })
-      return
-    }
-
     const nextSectors = workingSectors.filter((sector) => sector.id !== sectorId)
 
     setWorkingSectors(nextSectors)
@@ -232,6 +221,34 @@ export function StaffSectorsPage() {
     setIsSavingSectors(true)
     const result = await replaceSectors(workingSectors)
     setIsSavingSectors(false)
+
+    if (result.ok) {
+      const savedSectors = workingSectors.map((sector) => ({
+        ...sector,
+        id: sector.id.trim(),
+        name: sector.name.trim(),
+        path: sector.path.trim(),
+      }))
+      const savedSectorIds = new Set(savedSectors.map((sector) => sector.id))
+      const removedDocumentUrls = Object.entries(documentsBySector)
+        .filter(([sectorId]) => !savedSectorIds.has(sectorId))
+        .flatMap(([, documents]) =>
+          documents
+            .map((document) => document.previewDataUrl)
+            .filter((url): url is string => Boolean(url)),
+        )
+
+      setWorkingSectors(savedSectors)
+      setDocumentsBySector((currentStore) =>
+        Object.fromEntries(
+          Object.entries(currentStore).filter(([sectorId]) => savedSectorIds.has(sectorId)),
+        ),
+      )
+
+      if (removedDocumentUrls.length > 0) {
+        await Promise.allSettled(removedDocumentUrls.map((url) => deleteCloudBlob(url)))
+      }
+    }
 
     notify({
       type: result.ok ? 'success' : 'error',
@@ -299,6 +316,7 @@ export function StaffSectorsPage() {
     const currentDocuments = documentsBySector[targetSectorId] ?? []
     const signatures = new Set(currentDocuments.map((item) => item.uniqueSignature))
     const nextDocuments: UploadedDocument[] = []
+    const uploadedBlobUrls: string[] = []
     const nextMessages: string[] = []
 
     for (const [index, file] of files.entries()) {
@@ -320,22 +338,36 @@ export function StaffSectorsPage() {
 
       signatures.add(uniqueSignature)
 
-      let previewDataUrl: string | undefined
+      const displayFileName = buildDisplayFileName(
+        baseDisplayName,
+        validation.extension ?? '',
+        index,
+        files.length,
+      )
+      let previewDataUrl: string
 
       try {
-        previewDataUrl = await fileToDataUrl(file)
-      } catch {
-        nextMessages.push(`${file.name}: nao foi possivel gerar pre-visualizacao.`)
+        const blob = await upload(buildBlobPath(targetSectorId, displayFileName), file, {
+          access: 'public',
+          contentType: file.type || 'application/octet-stream',
+          handleUploadUrl: '/api/cloud/blob-upload',
+          multipart: file.size > 4 * 1024 * 1024,
+        })
+
+        previewDataUrl = blob.url
+        uploadedBlobUrls.push(blob.url)
+      } catch (error) {
+        nextMessages.push(
+          error instanceof Error
+            ? `${file.name}: ${error.message}`
+            : `${file.name}: nao foi possivel enviar para a nuvem.`,
+        )
+        continue
       }
 
       nextDocuments.push({
         id: crypto.randomUUID(),
-        name: buildDisplayFileName(
-          baseDisplayName,
-          validation.extension ?? '',
-          index,
-          files.length,
-        ),
+        name: displayFileName,
         size: file.size,
         extension: validation.extension ?? '',
         mimeType: file.type || 'application/octet-stream',
@@ -363,6 +395,7 @@ export function StaffSectorsPage() {
       const savedStore = await saveSectorDocumentsStore(nextStore)
       setDocumentsBySector(savedStore)
     } catch {
+      await Promise.allSettled(uploadedBlobUrls.map((url) => deleteCloudBlob(url)))
       appendFileMessages([
         'Nao foi possivel salvar os arquivos na nuvem. Tente novamente.',
       ])
@@ -412,6 +445,7 @@ export function StaffSectorsPage() {
     }
 
     const currentDocuments = documentsBySector[activeSectorId] ?? []
+    const targetDocument = currentDocuments.find((item) => item.id === documentId)
     const nextDocuments = currentDocuments.filter((item) => item.id !== documentId)
 
     const nextStore: SectorDocumentsStore = {
@@ -422,6 +456,17 @@ export function StaffSectorsPage() {
     try {
       const savedStore = await saveSectorDocumentsStore(nextStore)
       setDocumentsBySector(savedStore)
+
+      if (targetDocument?.previewDataUrl) {
+        try {
+          await deleteCloudBlob(targetDocument.previewDataUrl)
+        } catch {
+          appendFileMessages([
+            `${targetDocument.name}: metadados removidos, mas o arquivo nao foi apagado do Blob.`,
+          ])
+        }
+      }
+
       notify({
         type: 'success',
         message: 'Arquivo removido do setor.',
@@ -482,34 +527,41 @@ export function StaffSectorsPage() {
         </div>
 
         <div className="staff-sectors-list" role="list" aria-label="Lista de setores">
-          {workingSectors.map((sector) => (
-            <article key={sector.id} className="staff-sector-item" role="listitem">
-              <label className="field staff-sector-field">
-                <span>Nome do setor</span>
-                <input
-                  value={sector.name}
-                  onChange={(event) => handleSectorNameChange(sector.id, event.target.value)}
-                />
-              </label>
-
-              <div className="staff-sector-actions">
-                <button
-                  type="button"
-                  className="ghost-button"
-                  onClick={() => openFilesModal(sector.id)}
-                >
-                  Arquivos
-                </button>
-                <button
-                  type="button"
-                  className="danger-button"
-                  onClick={() => handleRemoveSector(sector.id)}
-                >
-                  Remover
-                </button>
-              </div>
+          {workingSectors.length === 0 ? (
+            <article className="empty-card" role="listitem">
+              <h3>Nenhum setor criado</h3>
+              <p>Use Novo setor para criar a primeira area operacional.</p>
             </article>
-          ))}
+          ) : (
+            workingSectors.map((sector) => (
+              <article key={sector.id} className="staff-sector-item" role="listitem">
+                <label className="field staff-sector-field">
+                  <span>Nome do setor</span>
+                  <input
+                    value={sector.name}
+                    onChange={(event) => handleSectorNameChange(sector.id, event.target.value)}
+                  />
+                </label>
+
+                <div className="staff-sector-actions">
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => openFilesModal(sector.id)}
+                  >
+                    Arquivos
+                  </button>
+                  <button
+                    type="button"
+                    className="danger-button"
+                    onClick={() => handleRemoveSector(sector.id)}
+                  >
+                    Remover
+                  </button>
+                </div>
+              </article>
+            ))
+          )}
         </div>
       </section>
 
@@ -537,7 +589,7 @@ export function StaffSectorsPage() {
                 <input
                   value={newSectorName}
                   onChange={(event) => setNewSectorName(event.target.value)}
-                  placeholder="Ex.: Setor Patrimonial"
+                  placeholder="Digite o nome do setor"
                   autoFocus
                 />
               </label>
